@@ -135,12 +135,12 @@ def get_subreddit_submissions(subreddit, top_n_submissions, comment_depth, verbo
 
         if verbose > 0:
             msg = '{i} of {n} submissions extracted for {title}'
-            print(msg.format(i=i, n=top_n_submissions, title=subreddit.title))
+            print(msg.format(i=i, n=top_n_submissions, title=_decode_utf(subreddit.display_name)))
 
     return submission_comment_chains
 
 
-def download_reddit_data(reddit, subreddit_dict, reddit_dirname=REDDIT_DATA_DIR, top_n_submissions=50, comment_depth=3):
+def download_reddit_data(reddit, subreddit_dict, reddit_dirname=REDDIT_DATA_DIR, top_n_submissions=10, comment_depth=4):
     """Downloads all relevant data from subreddits specified in the subreddit dict.
 
     Downloads to raw data folder. Currently downloads the following data
@@ -156,17 +156,31 @@ def download_reddit_data(reddit, subreddit_dict, reddit_dirname=REDDIT_DATA_DIR,
         top_n_submissions (n): Number of posts to scrape comments from.
     """
     flattened_subreddits = flatten_subreddit_dict(subreddit_dict)
-    for cat, subcat, subreddit in flattened_subreddits:
-        dirname = op.join(map(make_dirname, (cat, subcat, subreddit)))
+    for sub_id, (cat, subcat, subreddit) in enumerate(flattened_subreddits):
+        cat, subcat, subreddit = map(make_dirname, (cat, subcat, subreddit))
+        if cat == 'Defunct':
+            continue
+
+        dirname = op.join(reddit_dirname, cat, subcat, subreddit)
         praw_subreddit = reddit.subreddit(subreddit)
 
         # download description
+        try:
+            description = _decode_utf(praw_subreddit.description)
+        except Exception:  # TODO: Use the more specific prawcore.excpetions.NotFound
+            description = ''
+
         with open(op.join(dirname, 'description'), 'w') as file:
-            file.write(_decode_utf(praw_subreddit.description))
+            file.write(description)
 
         # download top n submission comment chains
-        get_subreddit_submissions(subreddit, top_n_submissions, comment_depth)
-    pass
+        submissions = get_subreddit_submissions(reddit.subreddit(subreddit), top_n_submissions, comment_depth)
+        for i, sub in enumerate(submissions):
+            with open(op.join(dirname, 'sub_{}'.format(i)), 'w') as file:
+                file.write(_decode_utf(sub))
+
+        print('{i} of {n} subreddits complete'.format(i=sub_id, n=len(flattened_subreddits)))
+        print('Wrote: {path}'.format(path=dirname))
 
 
 def submission_example():
@@ -193,7 +207,7 @@ def submission_example():
         print(chain)
 
 
-if __name__ == '__main__':
+def main():
     reddit_data_dir = env_var('REDDIT_DATA_DIR') or REDDIT_DATA_DIR
     subreddit_dict_path = env_var('SUBREDDIT_DICT_PATH') or SUBREDDIT_DICT_PATH
 
@@ -201,7 +215,12 @@ if __name__ == '__main__':
     # create_directory_structure(subreddit_dict, reddit_data_dir)
 
     reddit = open_reddit_instance()
-    subreddit = reddit.subreddit('gravityfalls')
+    download_reddit_data(reddit, subreddit_dict, reddit_data_dir)
 
-    for sub in get_subreddit_submissions(subreddit, 10, 3):
-        print(_decode_utf(sub))
+
+if __name__ == '__main__':
+    reddit = open_reddit_instance()
+    try:
+        main()
+    except KeyboardInterrupt:
+        pass
