@@ -1,15 +1,14 @@
-#### Subreddit Recommender
+### Subreddit Recommender
 
 [![Build Status](https://travis-ci.org/ericchang00/subreddit_recommender.svg?branch=master)](https://travis-ci.org/ericchang00/subreddit_recommender)
 
 Using NLP to recommend subreddits.
 
-Project Organization
+#### Project Organization
 ------------
 
     ├── README.md
     ├── data
-    │   ├── external       <- Data from third party sources.
     │   ├── interim        <- Intermediate data that has been transformed.
     │   ├── processed      <- The final, canonical data sets for modeling.
     │   └── raw            <- The original, immutable data dump.
