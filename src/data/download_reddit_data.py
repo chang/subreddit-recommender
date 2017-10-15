@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
 import os
-import re
 import os.path as op
 import shutil
 
@@ -44,7 +43,6 @@ def flatten_subreddit_dict(subreddit_dict):
 
 def make_dirname(s):
     """Converts a subreddit name to a valid directory name.
-    
     (necessary since some subreddits have forward slashes in their names)
     """
     return s.replace('/r/', '').replace('/', '')
@@ -55,7 +53,7 @@ def _mkdir(path):
     if not op.exists(path):
         try:
             os.mkdir(path)
-        except FileNotFoundError:
+        except OSError:
             raise ValueError('Problematic path: {path}'.format(path=path))
 
 
@@ -112,7 +110,7 @@ def traverse_comment_forest(comment_forest, depth=3, max_comments=100, verbose=V
     assert is_comment_forest, 'Input should be a CommentForest object.'
 
     comments_and_replies = []
-    comment_forest.replace_more(limit=3, threshold=1)  # TODO: Determine a logical # of comments to replace and a logical threshold
+    comment_forest.replace_more(limit=3, threshold=1)  # TODO: Find a logical # of replaces and a logical threshold
     for comment in comment_forest:
         content = [comment.body] + [reply.body for reply in comment.replies[0:depth]]
         comments_and_replies.append('\n'.join(content))
@@ -136,14 +134,15 @@ def get_subreddit_submissions(subreddit, top_n_submissions, comment_depth, verbo
         submission_comment_chains.append('\n'.join(content))
 
         if verbose > 0:
-            print('{i} of {n} submissions extracted for {title}'.format(i=i, n=top_n_submissions, title=subreddit.title))
+            msg = '{i} of {n} submissions extracted for {title}'
+            print(msg.format(i=i, n=top_n_submissions, title=subreddit.title))
 
     return submission_comment_chains
 
 
 def download_reddit_data(reddit, subreddit_dict, reddit_dirname=REDDIT_DATA_DIR, top_n_submissions=50, comment_depth=3):
     """Downloads all relevant data from subreddits specified in the subreddit dict.
-    
+
     Downloads to raw data folder. Currently downloads the following data
     - subreddit description
     - subreddit wiki text
@@ -166,8 +165,7 @@ def download_reddit_data(reddit, subreddit_dict, reddit_dirname=REDDIT_DATA_DIR,
             file.write(_decode_utf(praw_subreddit.description))
 
         # download top n submission comment chains
-        with open(op.join(dirname, 'sub_{i}'.format(i=i)), 'w') as file:
-            file.write(body)
+        get_subreddit_submissions(subreddit, top_n_submissions, comment_depth)
     pass
 
 
@@ -207,14 +205,3 @@ if __name__ == '__main__':
 
     for sub in get_subreddit_submissions(subreddit, 10, 3):
         print(_decode_utf(sub))
-
-    import sys
-    sys.exit()
-
-    for submission in subreddit.top(limit=n_submissions):
-        submission.comment_sort = 'top'
-        comments = submission.comments.list()
-        body = traverse_comment_forest(comments)
-        print(body)
-
-    top_submissions(subreddit, n_submissions=10, n_comments=10)
