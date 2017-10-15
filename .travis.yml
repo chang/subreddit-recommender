@@ -1,0 +1,10 @@
+language: python
+python:
+  - "3.6"
+install:
+  - pip install -r requirements.txt
+before_script:
+  - export PYTHONPATH=$PYTHONPATH:/home/travis/build/ericchang00/
+script:
+  - pytest
+  - flake8 src
