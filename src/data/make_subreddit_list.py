@@ -1,9 +1,9 @@
-import requests
-import time
 import json
+import time
 
+import requests
 from bs4 import BeautifulSoup
-from subreddit_recommender.src.util import env_var, data_dir_file
+from subreddit_recommender.src.util import data_dir_file, env_var
 
 
 class TooManyRequestsError(Exception):
