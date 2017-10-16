@@ -1,5 +1,4 @@
 # -*- coding: utf-8 -*-
-import json
 import os
 import os.path as op
 import shutil
@@ -9,23 +8,13 @@ from timeit import default_timer
 
 import praw
 
-from subreddit_recommender.src.util import data_dir, env_var, parse_client_ids
-
-# path defaults, can be overridden by setting variables of the same name in .env
-REDDIT_DATA_DIR = op.join(data_dir('raw'), 'REDDIT_RAW')
-SUBREDDIT_DICT_PATH = op.join(data_dir('processed'), 'subreddit_list.json')
-
+from subreddit_recommender.src.util import (data_dir, data_dir_subreddit,
+                                            load_json, parse_client_ids,
+                                            valid_subreddit_dirname)
 
 TOP_N_SUBMISSIONS = 20
 COMMENT_DEPTH = 4
 VERBOSE = 1
-
-
-def load_subreddit_dict(path=SUBREDDIT_DICT_PATH):
-    """"""
-    with open(path, 'r') as file:
-        subreddit_dict = json.load(file)
-    return subreddit_dict
 
 
 def open_reddit_instance(credentials):
@@ -45,31 +34,6 @@ def open_reddit_instance(credentials):
     return reddit
 
 
-def make_dirname(s):
-    """Converts a subreddit name to a valid directory name.
-    (necessary since some subreddits have forward slashes in their names)
-    """
-    return s.replace('/r/', '').replace('/', '')
-
-
-def data_dir_subreddit(*args, reddit_data_dir=REDDIT_DATA_DIR):
-    """Returns the subreddit data directory.
-
-    Input should be a tuple of the form (category, subcategory, subreddit),
-    or as separate arguments.
-    """
-    args_correct_length = len(args) == 3 or len(args) == 1
-    single_arg_correct_length = len(args[0]) == 3 if len(args) == 1 else True
-    if not (args_correct_length and single_arg_correct_length):
-        raise ValueError('Input should be a tuple of the form (category, subcategory, subreddit), or *args')
-
-    if len(args) == 1:
-        args = args[0]
-    category, subcategory, subreddit = args
-    elems = [reddit_data_dir] + [make_dirname(e) for e in args]  # TODO: make REDDIT_DATA_DIR a param
-    return op.join(*elems)
-
-
 def flatten_subreddit_dict(subreddit_dict):
     """Flattens 2 nested dictionaries into a list of tuples."""
     subreddits = []
@@ -80,7 +44,7 @@ def flatten_subreddit_dict(subreddit_dict):
     return subreddits
 
 
-def create_directory_structure(subreddit_dict, reddit_data_dir=REDDIT_DATA_DIR, overwrite=False):
+def create_directory_structure(subreddit_dict, raw_data_dirname='reddit_raw', overwrite=False):
     """Create the directory structure for storing reddit data.
 
     Args:
@@ -88,6 +52,7 @@ def create_directory_structure(subreddit_dict, reddit_data_dir=REDDIT_DATA_DIR, 
         reddit_data_dir (str): Path to reddit data directory.
         overwrite (bool): If True, overwrites all existing data in the directory.
     """
+    reddit_data_dir = op.join(data_dir('raw'), raw_data_dirname)
     if overwrite:
         shutil.rmtree(reddit_data_dir)
 
@@ -183,7 +148,7 @@ def worker(payload):
         t0 = default_timer()
         if cat == 'Defunct':
             continue
-        subreddit = make_dirname(subreddit)
+        subreddit = valid_subreddit_dirname(subreddit)
         praw_subreddit = reddit.subreddit(subreddit)
 
         try:
@@ -220,7 +185,8 @@ def split_list(arr, n):
     return [arr[i::n] for i in range(n)]
 
 
-def download_reddit_data(subreddit_dict, reddit_data_dir, top_n_submissions=10, comment_depth=4):
+def download_reddit_data(subreddit_dict, reddit_data_dir,
+                         top_n_submissions=TOP_N_SUBMISSIONS, comment_depth=COMMENT_DEPTH):
     """Downloads all relevant data from subreddits specified in the subreddit dict.
 
     Downloads to raw data folder. Currently downloads the following data
@@ -234,7 +200,7 @@ def download_reddit_data(subreddit_dict, reddit_data_dir, top_n_submissions=10, 
         reddit_data_dir (str): Subdirectory of data/raw to store data.
         top_n_submissions (n): Number of posts to scrape comments from.
     """
-    N_THREADS = 6
+    N_THREADS = 10
     flattened_subreddits = flatten_subreddit_dict(subreddit_dict)
 
     # split subreddit tuples
@@ -254,7 +220,6 @@ def download_reddit_data(subreddit_dict, reddit_data_dir, top_n_submissions=10, 
 
     pool = ThreadPool(N_THREADS)
     pool.map(worker, payloads)
-
     print('COMPLETE ' * 100)
 
 
@@ -284,13 +249,12 @@ def submission_example():
 
 
 def main():
-    reddit_data_dir = env_var('REDDIT_DATA_DIR') or REDDIT_DATA_DIR
-    subreddit_dict_path = env_var('SUBREDDIT_DICT_PATH') or SUBREDDIT_DICT_PATH
+    reddit_data_dir = op.join(data_dir('raw'), 'reddit_raw')
+    subreddit_dict_path = op.join(data_dir('raw'), 'subreddit_list.json')
+    subreddit_dict = load_json(subreddit_dict_path)
 
-    subreddit_dict = load_subreddit_dict(subreddit_dict_path)
     create_directory_structure(subreddit_dict, reddit_data_dir, overwrite=False)
-
-    download_reddit_data(subreddit_dict, REDDIT_DATA_DIR)
+    download_reddit_data(subreddit_dict, reddit_data_dir)
 
 
 if __name__ == '__main__':
