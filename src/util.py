@@ -2,22 +2,15 @@ import json
 import os
 import os.path as op
 
+import subreddit_recommender
 
-def load_env(max_levels=5):
-    """Finds .env and returns a dictionary with variables.
 
-    Attributes:
-        max_levels (int): Maximum number of parent directories to traverse.
-    """
-    levels = 0
-    dir_ = op.dirname(__file__)
-    while levels < max_levels:
-        files = os.listdir(dir_)
-        if '.env' in files:
-            vars = parse_env(op.join(dir_, '.env'))
-            return vars
-        dir_ = op.dirname(dir_)
-        levels += 1
+def load_env():
+    """Loads the .env in the base directory as a dictionary."""
+    env_path = op.join(base_dir(), '.env')
+    if op.exists(env_path):
+        vars = parse_env(env_path)
+        return vars
     return None
 
 
@@ -56,7 +49,8 @@ def parse_client_ids():
     env = load_env()
     for key in env.keys():
         if key.startswith('CLIENT'):
-            client_ids.append(env[key].split(':'))
+            client_id = tuple(env[key].split(':'))
+            client_ids.append(client_id)
     return client_ids
 
 
@@ -69,6 +63,11 @@ def strip_unwanted_chars(s):
     return s
 
 
+def base_dir():
+    head, tail = op.split(subreddit_recommender.__file__)
+    return head
+
+
 def data_dir(subdir='', max_levels=5):
     """Returns the full path of the data directory or a specified subdirectory.
 
@@ -78,15 +77,8 @@ def data_dir(subdir='', max_levels=5):
     if subdir not in valid_subdirs:
         raise ValueError('subdir must be one of the following: {dirs}'.format(dirs=valid_subdirs))
 
-    levels = 0
-    dir_ = op.dirname(__file__)
-    while levels < max_levels:
-        path = op.abspath(dir_)
-        if op.isdir(path) and not op.basename(path) == 'src':
-            data_dir = op.join(path, 'data')
-            return op.join(data_dir, subdir) if subdir else data_dir
-        dir_ = op.dirname(dir_)
-    return None
+    data_dir = op.join(base_dir(), 'data')
+    return op.join(data_dir, subdir) if subdir else data_dir
 
 
 def data_dir_file(file_name, subdir=''):
