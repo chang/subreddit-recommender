@@ -33,7 +33,7 @@ def _get_categorized_subreddit_list():
         raise TooManyRequestsError('Rate limit reached.')
 
     # write to file for inspection
-    pretty_file_path = data_dir_file('pretty_subreddits.html', subdir='processed')
+    pretty_file_path = data_dir_file('formatted_subreddit_list.html', subdir='raw')
     pretty_text = soup.prettify(encoding='utf-8')
     with open(pretty_file_path, 'wb') as file:
         file.write(pretty_text)
@@ -45,7 +45,7 @@ def _get_categorized_subreddit_list():
     subreddit_dict = subreddits_to_dict(tags)
     subreddit_json = json.dumps(subreddit_dict, indent=4, sort_keys=True)
 
-    with open(data_dir_file('subreddit_list.json', subdir='processed'), 'w') as file:
+    with open(data_dir_file('subreddit_list.json', subdir='raw'), 'w') as file:
         file.write(subreddit_json)
 
 
