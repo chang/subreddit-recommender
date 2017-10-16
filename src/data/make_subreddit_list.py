@@ -3,6 +3,7 @@ import time
 
 import requests
 from bs4 import BeautifulSoup
+
 from subreddit_recommender.src.util import data_dir_file, env_var
 
 
@@ -63,6 +64,9 @@ def subreddits_to_dict(tags):
 
         if content_reached:
             tag_text = tag.get_text()
+
+            if '.com' in tag_text:
+                continue
 
             if tag.name == 'h1':
                 category = tag_text
