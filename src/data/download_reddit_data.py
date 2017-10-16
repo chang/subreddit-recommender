@@ -3,13 +3,21 @@ import json
 import os
 import os.path as op
 import shutil
+import time
+from multiprocessing.dummy import Pool as ThreadPool
+from timeit import default_timer
 
 import praw
-from subreddit_recommender.src.util import data_dir, env_var, load_env
+
+from subreddit_recommender.src.util import data_dir, env_var, parse_client_ids
 
 # path defaults, can be overridden by setting variables of the same name in .env
 REDDIT_DATA_DIR = op.join(data_dir('raw'), 'REDDIT_RAW')
 SUBREDDIT_DICT_PATH = op.join(data_dir('processed'), 'subreddit_list.json')
+
+
+TOP_N_SUBMISSIONS = 20
+COMMENT_DEPTH = 4
 VERBOSE = 1
 
 
@@ -20,15 +28,46 @@ def load_subreddit_dict(path=SUBREDDIT_DICT_PATH):
     return subreddit_dict
 
 
-def open_reddit_instance():
-    """Returns a praw.Reddit instance authenticated with environment variables."""
-    env = load_env()
+def open_reddit_instance(credentials):
+    """Returns an authenticated praw.Reddit instance.
+
+    Attributes:
+        credentials: tuple of string
+            (client_id, client_secret)
+    """
+    client_id, client_secret = credentials
+    user_agent = 'mac:subreddit_recommender_{h}:v1'.format(h=hash(client_id))
     reddit = praw.Reddit(
-        client_id=env['CLIENT_ID'],
-        client_secret=env['CLIENT_SECRET'],
-        user_agent=env['USER_AGENT']
+        client_id=client_id,
+        client_secret=client_secret,
+        user_agent=user_agent
     )
     return reddit
+
+
+def make_dirname(s):
+    """Converts a subreddit name to a valid directory name.
+    (necessary since some subreddits have forward slashes in their names)
+    """
+    return s.replace('/r/', '').replace('/', '')
+
+
+def data_dir_subreddit(*args, reddit_data_dir=REDDIT_DATA_DIR):
+    """Returns the subreddit data directory.
+
+    Input should be a tuple of the form (category, subcategory, subreddit),
+    or as separate arguments.
+    """
+    args_correct_length = len(args) == 3 or len(args) == 1
+    single_arg_correct_length = len(args[0]) == 3 if len(args) == 1 else True
+    if not (args_correct_length and single_arg_correct_length):
+        raise ValueError('Input should be a tuple of the form (category, subcategory, subreddit), or *args')
+
+    if len(args) == 1:
+        args = args[0]
+    category, subcategory, subreddit = args
+    elems = [reddit_data_dir] + [make_dirname(e) for e in args]  # TODO: make REDDIT_DATA_DIR a param
+    return op.join(*elems)
 
 
 def flatten_subreddit_dict(subreddit_dict):
@@ -41,41 +80,24 @@ def flatten_subreddit_dict(subreddit_dict):
     return subreddits
 
 
-def make_dirname(s):
-    """Converts a subreddit name to a valid directory name.
-    (necessary since some subreddits have forward slashes in their names)
-    """
-    return s.replace('/r/', '').replace('/', '')
-
-
-def _mkdir(path):
-    """Makes directory if path doesn't exist."""
-    if not op.exists(path):
-        try:
-            os.mkdir(path)
-        except OSError:
-            raise ValueError('Problematic path: {path}'.format(path=path))
-
-
-def create_directory_structure(subreddit_dict, reddit_dirname=REDDIT_DATA_DIR, overwrite=False):
+def create_directory_structure(subreddit_dict, reddit_data_dir=REDDIT_DATA_DIR, overwrite=False):
     """Create the directory structure for storing reddit data.
 
     Args:
         subreddit_dict (dict):
-        reddit_dirname (str): Path to reddit data directory.
+        reddit_data_dir (str): Path to reddit data directory.
         overwrite (bool): If True, overwrites all existing data in the directory.
     """
     if overwrite:
-        shutil.rmtree(reddit_dirname)
-    _mkdir(reddit_dirname)
+        shutil.rmtree(reddit_data_dir)
 
     flattened_subreddits = flatten_subreddit_dict(subreddit_dict)
     for cat, subcat, subreddit in flattened_subreddits:
-        cat, subcat, subreddit = map(make_dirname, (cat, subcat, subreddit))
-
-        _mkdir(op.join(reddit_dirname, cat))
-        _mkdir(op.join(reddit_dirname, cat, subcat))
-        _mkdir(op.join(reddit_dirname, cat, subcat, subreddit))
+        path = data_dir_subreddit(cat, subcat, subreddit)
+        try:
+            os.makedirs(path)
+        except OSError:
+            continue
 
     print('{n} directories for subreddits created.'.format(n=len(flattened_subreddits)))
 
@@ -117,8 +139,13 @@ def traverse_comment_forest(comment_forest, depth=3, max_comments=100, verbose=V
     return comments_and_replies
 
 
-def get_subreddit_submissions(subreddit, top_n_submissions, comment_depth, verbose=VERBOSE):
+def get_subreddit_submissions(subreddit, top_n_submissions, comment_depth, verbose=VERBOSE, worker_id=None):
     """Given a subreddit object, returns a list of submissions.
+
+    Attributes:
+        subreddit: praw.models.Subreddit
+        top_n_submissions: int
+        comment_depth: int
 
     Return is a list of length top_n_submissions, with each string being the submission's
     title and comment chain.
@@ -135,12 +162,65 @@ def get_subreddit_submissions(subreddit, top_n_submissions, comment_depth, verbo
 
         if verbose > 0:
             msg = '{i} of {n} submissions extracted for {title}'
+            if worker_id is not None:
+                msg = 'Worker {id_}: '.format(id_=worker_id) + msg
+
             print(msg.format(i=i, n=top_n_submissions, title=_decode_utf(subreddit.display_name)))
 
     return submission_comment_chains
 
 
-def download_reddit_data(reddit, subreddit_dict, reddit_dirname=REDDIT_DATA_DIR, top_n_submissions=10, comment_depth=4):
+def worker(payload):
+    """Performs data downloading"""
+
+    # unzip payload
+    subreddit_tuples, worker_id, reddit = payload
+    print('Worker #{id_} has entered the game.'.format(id_=worker_id))
+    time.sleep(1)
+
+    for sub_id, (cat, subcat, subreddit) in enumerate(subreddit_tuples):
+        # download and write description
+        t0 = default_timer()
+        if cat == 'Defunct':
+            continue
+        subreddit = make_dirname(subreddit)
+        praw_subreddit = reddit.subreddit(subreddit)
+
+        try:
+            description = _decode_utf(praw_subreddit.description)
+        except Exception:
+            description = ''
+
+        # download and write top_n_submissions
+        submissions = get_subreddit_submissions(praw_subreddit,
+                                                top_n_submissions=TOP_N_SUBMISSIONS,
+                                                comment_depth=COMMENT_DEPTH,
+                                                worker_id=worker_id,
+                                                verbose=0)
+
+        # write to file
+        path = data_dir_subreddit(cat, subcat, subreddit)
+        with open(op.join(path, 'description'), 'w') as file:
+            file.write(description)
+        for i, sub in enumerate(submissions):
+            with open(op.join(path, 'sub_{i}'.format(i=i)), 'w') as file:
+                file.write(_decode_utf(sub))
+
+        msg = 'Worker #{id_}: {sub_id} / {total} complete. Time elapsed: {time}s\n'
+        msg += 'Wrote to: {path}\n'
+        print(msg.format(id_=worker_id,
+                         sub_id=sub_id,
+                         total=len(subreddit_tuples),
+                         time=round(default_timer() - t0, 2),
+                         path=path))
+
+
+def split_list(arr, n):
+    """Split a list into n chunks."""
+    return [arr[i::n] for i in range(n)]
+
+
+def download_reddit_data(subreddit_dict, reddit_data_dir, top_n_submissions=10, comment_depth=4):
     """Downloads all relevant data from subreddits specified in the subreddit dict.
 
     Downloads to raw data folder. Currently downloads the following data
@@ -149,43 +229,39 @@ def download_reddit_data(reddit, subreddit_dict, reddit_dirname=REDDIT_DATA_DIR,
     - all comments from top_n_submissions posts
 
     Args:
-        reddit (praw.Reddit): An authenticated praw.Reddit instance.
         subreddit_dict (dict): Dictionary of subreddits, organized by the hierarchy:
                                Category | Subcategory | List of subreddits
-        reddit_dirname (str): Subdirectory of data/raw to store data.
+        reddit_data_dir (str): Subdirectory of data/raw to store data.
         top_n_submissions (n): Number of posts to scrape comments from.
     """
+    N_THREADS = 6
     flattened_subreddits = flatten_subreddit_dict(subreddit_dict)
-    for sub_id, (cat, subcat, subreddit) in enumerate(flattened_subreddits):
-        cat, subcat, subreddit = map(make_dirname, (cat, subcat, subreddit))
-        if cat == 'Defunct':
-            continue
 
-        dirname = op.join(reddit_dirname, cat, subcat, subreddit)
-        praw_subreddit = reddit.subreddit(subreddit)
+    # split subreddit tuples
+    split_subreddits = split_list(flattened_subreddits, N_THREADS)
 
-        # download description
-        try:
-            description = _decode_utf(praw_subreddit.description)
-        except Exception:  # TODO: Use the more specific prawcore.excpetions.NotFound
-            description = ''
+    # make reddit instances
+    credentials = parse_client_ids()
+    assert len(credentials) >= N_THREADS, 'Need as many credential sets as threads.'
+    credentials = credentials[0:N_THREADS]
+    reddit_instances = [open_reddit_instance(cred) for cred in credentials]
 
-        with open(op.join(dirname, 'description'), 'w') as file:
-            file.write(description)
+    # worker ids
+    worker_ids = [i for i in range(N_THREADS)]
 
-        # download top n submission comment chains
-        submissions = get_subreddit_submissions(reddit.subreddit(subreddit), top_n_submissions, comment_depth)
-        for i, sub in enumerate(submissions):
-            with open(op.join(dirname, 'sub_{}'.format(i)), 'w') as file:
-                file.write(_decode_utf(sub))
+    # zip payloads
+    payloads = [payload for payload in zip(split_subreddits, worker_ids, reddit_instances)]
 
-        print('{i} of {n} subreddits complete'.format(i=sub_id, n=len(flattened_subreddits)))
-        print('Wrote: {path}'.format(path=dirname))
+    pool = ThreadPool(N_THREADS)
+    pool.map(worker, payloads)
+
+    print('COMPLETE ' * 100)
 
 
 def submission_example():
     # authenticate reddit and open subreddit
-    reddit = open_reddit_instance()
+    client_id, client_secret = parse_client_ids()[0]
+    reddit = open_reddit_instance(client_id, client_secret)
     subreddit = reddit.subreddit('gravityfalls')
 
     # grab submissions (posts)
@@ -212,14 +288,12 @@ def main():
     subreddit_dict_path = env_var('SUBREDDIT_DICT_PATH') or SUBREDDIT_DICT_PATH
 
     subreddit_dict = load_subreddit_dict(subreddit_dict_path)
-    # create_directory_structure(subreddit_dict, reddit_data_dir)
+    create_directory_structure(subreddit_dict, reddit_data_dir, overwrite=False)
 
-    reddit = open_reddit_instance()
-    download_reddit_data(reddit, subreddit_dict, reddit_data_dir)
+    download_reddit_data(subreddit_dict, REDDIT_DATA_DIR)
 
 
 if __name__ == '__main__':
-    reddit = open_reddit_instance()
     try:
         main()
     except KeyboardInterrupt:
