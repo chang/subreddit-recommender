@@ -8,3 +8,4 @@ before_script:
 script:
   - pytest
   - flake8 src
+  - isort src/*.py tests/*.py -c
