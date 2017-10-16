@@ -27,9 +27,12 @@ def parse_env(path):
         lines = file.readlines()
         lines = [strip_unwanted_chars(l) for l in lines if not l.startswith('#')]
         for line in lines:
-            var, value = line.split('=')
-            value = strip_unwanted_chars(value)
-            variables[var] = value
+            try:
+                var, value = line.split('=')
+                value = strip_unwanted_chars(value)
+                variables[var] = value
+            except ValueError:  # skip empty lines in .env
+                continue
     return variables
 
 
@@ -39,6 +42,21 @@ def env_var(var):
     for key, value in env.items():
         if var.lower() in key.lower():
             return env[key]
+
+
+def parse_client_ids():
+    """Parses .env and returns a list of client ids and client keys.
+
+    Returns:
+        client_ids: list(tuple)
+            List of (client_id, client_secret)
+    """
+    client_ids = []
+    env = load_env()
+    for key in env.keys():
+        if key.startswith('CLIENT'):
+            client_ids.append(env[key].split(':'))
+    return client_ids
 
 
 def strip_unwanted_chars(s):
