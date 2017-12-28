@@ -2,11 +2,9 @@ import json
 import os
 import os.path as op
 
-import subreddit_recommender
-
 
 def load_env():
-    """Loads the .env in the base directory as a dictionary."""
+    """Load the .env in the base directory as a dictionary."""
     env_path = op.join(base_dir(), '.env')
     if op.exists(env_path):
         vars = parse_env(env_path)
@@ -15,7 +13,7 @@ def load_env():
 
 
 def parse_env(path):
-    """Parses and loads variables in an .env into a dictionary."""
+    """Parse and load variables in an .env into a dictionary."""
     variables = {}
     with open(path, 'r') as file:
         lines = file.readlines()
@@ -31,7 +29,7 @@ def parse_env(path):
 
 
 def env_var(var):
-    """Grabs an environment variable without case sensitivity, by key"""
+    """Grab an environment variable without case sensitivity, by key."""
     env = load_env()
     for key, value in env.items():
         if var.lower() in key.lower():
@@ -39,7 +37,7 @@ def env_var(var):
 
 
 def parse_client_ids():
-    """Parses .env and returns a list of client ids and client keys.
+    """Parse .env and return a list of client ids and client keys.
 
     Returns:
         client_ids: list(tuple)
@@ -64,12 +62,31 @@ def strip_unwanted_chars(s):
 
 
 def base_dir():
-    head, tail = op.split(subreddit_recommender.__file__)
-    return head
+    """Return the base directory for the project. Assumes the DS cookiecutter template."""
+    path = os.path.dirname(os.path.abspath(__file__))
+    return _base_dir(path=path, frame=0)
 
 
-def data_dir(subdir='', max_levels=5):
-    """Returns the full path of the data directory or a specified subdirectory.
+def _base_dir(path, frame):
+    MAX_FRAMES = 5
+    if frame > MAX_FRAMES:
+        raise ValueError('Max frames reached.')
+    elif _is_base_dir(path):
+        return path
+    else:
+        frame += 1
+        return _base_dir(path=os.path.dirname(path), frame=frame)
+
+
+def _is_base_dir(path):
+    files = os.listdir(path)
+    has_src = 'src' in files
+    has_data = 'data' in files
+    return has_src and has_data
+
+
+def data_dir(subdir=''):
+    """Return the full path of the data directory or a specified subdirectory.
 
     Assumes the cookiecutter template.
     """
@@ -82,7 +99,7 @@ def data_dir(subdir='', max_levels=5):
 
 
 def data_dir_file(file_name, subdir=''):
-    """Returns the file path to a specified data subdirectory. Creates subdirectory if does not exist."""
+    """Return the file path to a specified data subdirectory. Creates subdirectory if does not exist."""
     if not subdir:
         raise ValueError('Must specify a subdirectory.')
     dirname = data_dir(subdir)
@@ -92,7 +109,7 @@ def data_dir_file(file_name, subdir=''):
 
 
 def data_dir_subreddit(*args, raw_data_dirname='reddit_raw'):
-    """Returns the subreddit data directory.
+    """Return the subreddit data directory.
 
     Input should be a tuple of the form (category, subcategory, subreddit),
     or as separate arguments.
@@ -112,7 +129,7 @@ def data_dir_subreddit(*args, raw_data_dirname='reddit_raw'):
 
 
 def load_json(filename, subdir='raw'):
-    """Loads a .json by filename or path. Assumes the file is in data/raw."""
+    """Load a .json by filename or path. Assumes the file is in data/raw."""
     if not op.exists(filename):
         filename = op.join(data_dir(subdir), filename)
     with open(filename, 'r') as file:
@@ -121,7 +138,7 @@ def load_json(filename, subdir='raw'):
 
 
 def valid_subreddit_dirname(s):
-    """Converts a subreddit name to a valid directory name.
+    """Convert a subreddit name to a valid directory name.
     (necessary since some subreddits have forward slashes in their names)
     """
     return s.replace('/r/', '').replace('/', '')
