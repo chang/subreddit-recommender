@@ -24,7 +24,7 @@ pandas==0.20.3
 parsel==1.2.0
 praw==5.1.0
 prawcore==0.12.0
-py==1.4.34
+py==1.10.0
 pyasn1==0.3.7
 pyasn1-modules==0.1.5
 pycodestyle==2.3.1
